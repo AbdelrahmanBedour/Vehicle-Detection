@@ -279,3 +279,64 @@ def findBoxes(img, clf, scaler, params, y_start_stop=[380, 620] ,x_start_stop=[7
 
     return car_windows
         
+class HeatHistory():
+    def __init__(self):
+        self.history = []
+
+
+def processVideo(inputVideo, outputVideo, svc, scaler, params,
+                 debug_flag = 0 ,x_start_stop = [0,-1] ,frames_to_remember=3, threshhold=20):
+    """
+    Process the video `inputVideo` to find the cars and saves the video to `outputVideo`.
+    """
+    history = HeatHistory()
+
+    def pipeline(img):
+        if debug_flag == 0:
+            boxes = findBoxes(img, svc, scaler, params, x_start_stop=x_start_stop)
+            img_shape = img.shape
+            heatmap = add_heat(np.zeros(img_shape), boxes)
+            if len(history.history) >= frames_to_remember:
+                history.history = history.history[1:]
+
+            history.history.append(heatmap)
+            heat_history = reduce(lambda h, acc: h + acc, history.history) / frames_to_remember
+            heatmap = apply_threshold(heat_history, threshhold)
+            labels = label(heatmap)
+
+            return draw_labeled_bboxes(np.copy(img), labels)
+        else:
+            font = cv2.FONT_HERSHEY_TRIPLEX
+            fontColor = (255, 255, 255)
+            fontSize = 0.7
+            img_out = np.zeros((960, 1624, 3), dtype=np.uint8)
+            # ----------------------------------------
+            boxes = findBoxes(img, svc, scaler, params)
+            img_shape = img.shape
+            heatmap = add_heat(np.zeros(img_shape), boxes)
+
+            img_out[576:, 0:424, 0:3] = cv2.resize(img, (424, 384))
+            img_out[576:, 424:1024, 0:3] = cv2.resize(heatmap, (600, 384))
+
+            if len(history.history) >= frames_to_remember:
+                history.history = history.history[1:]
+
+            history.history.append(heatmap)
+            heat_history = reduce(lambda h, acc: h + acc, history.history) / frames_to_remember
+            heatmap = apply_threshold(heat_history, threshhold)
+            img_out[576:, 1024:, 0:3] = cv2.resize(heatmap, (600, 384))
+            labels = label(heatmap)
+            final = draw_labeled_bboxes(np.copy(img), labels)
+            # -----------------------------------------
+            img_out[0:576, :, 0:3] = cv2.resize(final, (1624, 576))  ## Real Image
+            # img_out[0:480, 1024:, 0:3] = cv2.resize(final, (600, 480))
+
+            cv2.putText(img_out, 'Real image', (10, 585), font, fontSize, fontColor, 2)
+            cv2.putText(img_out, 'Heat map', (530, 585), font, fontSize, fontColor, 2)
+            cv2.putText(img_out, 'Heat map after applying threshold', (1035, 585), font, fontSize, fontColor, 2)
+
+            return img_out
+
+    myclip = VideoFileClip(inputVideo).set_fps(16)  # .subclip(10, 40)
+    output_video = myclip.fl_image(pipeline)
+    output_video.write_videofile(outputVideo, audio=False)
