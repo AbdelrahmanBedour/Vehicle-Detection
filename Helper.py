@@ -179,4 +179,103 @@ def draw_labeled_bboxes(img, labels):
     # Return the image
     return img
 
+def findBoxes(img, clf, scaler, params, y_start_stop=[380, 620] ,x_start_stop=[700, -1], window=64, cells_per_step=1, scale=1.5):
+    """
+    Returns the windows where the cars are found on the image `img`.
+    The feature extraction used parameters `params`.
+    `y_start_stop` : Contains the Y axis range to find the cars.
+    `window` : Number of windows.
+    `cells_per_step` : Number of cells per step.
+    Returns a new image with the cars boxes.
+    """
+    # Parameters extraction
+    # HOG parameters
+    cspace = params.cspace
+    orient = params.orient
+    pix_per_cell = params.pix_per_cell
+    cell_per_block = params.cell_per_block
+    #---------------******************************************* hog_channel = params.hog_channel
+    # Spatial parameters
+    size = params.size
+    # Histogram parameters
+    hist_bins = params.hist_bins
+    hist_range = params.hist_range
+
+    # Image color space changes
+    # apply color conversion if other than 'RGB'
+    if cspace != 'RGB':
+        if cspace == 'HSV':
+            feature_image = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
+        elif cspace == 'LUV':
+            feature_image = cv2.cvtColor(img, cv2.COLOR_RGB2LUV)
+        elif cspace == 'HLS':
+            feature_image = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
+        elif cspace == 'YUV':
+            feature_image = cv2.cvtColor(img, cv2.COLOR_RGB2YUV)
+        elif cspace == 'YCrCb':
+            feature_image = cv2.cvtColor(img, cv2.COLOR_RGB2YCrCb)
+    else:
+        feature_image = np.copy(img)
+
+    ystart, ystop = y_start_stop
+    xstart,xstop = x_start_stop
+    ctrans_tosearch = feature_image[ystart:ystop, xstart:xstop, :]
+    if scale != 1:
+        imshape = ctrans_tosearch.shape
+        ctrans_tosearch = cv2.resize(ctrans_tosearch, (np.int(imshape[1] / scale), np.int(imshape[0] / scale)))
+
+    ch1 = ctrans_tosearch[:, :, 0]
+    ch2 = ctrans_tosearch[:, :, 1]
+    ch3 = ctrans_tosearch[:, :, 2]
+
+    # Define blocks and steps as above
+    nxblocks = (ch1.shape[1] // pix_per_cell) - cell_per_block + 1
+    nyblocks = (ch1.shape[0] // pix_per_cell) - cell_per_block + 1
+    #------------------------------------*********************** nfeat_per_block = orient * cell_per_block ** 2
+
+    nblocks_per_window = (window // pix_per_cell) - cell_per_block + 1
+    nxsteps = (nxblocks - nblocks_per_window) // cells_per_step
+    nysteps = (nyblocks - nblocks_per_window) // cells_per_step
+
+    # Compute individual channel HOG features for the entire image
+    hog1 = get_hog_features(ch1, orient, pix_per_cell, cell_per_block, feature_vec=False)
+    hog2 = get_hog_features(ch2, orient, pix_per_cell, cell_per_block, feature_vec=False)
+    hog3 = get_hog_features(ch3, orient, pix_per_cell, cell_per_block, feature_vec=False)
+
+    car_windows = []
+
+    for xb in range(nxsteps):
+        for yb in range(nysteps):
+            ypos = yb * cells_per_step
+            xpos = xb * cells_per_step
+
+            # Extract HOG for this patch
+            hog_feat1 = hog1[ypos:ypos + nblocks_per_window, xpos:xpos + nblocks_per_window].ravel()
+            hog_feat2 = hog2[ypos:ypos + nblocks_per_window, xpos:xpos + nblocks_per_window].ravel()
+            hog_feat3 = hog3[ypos:ypos + nblocks_per_window, xpos:xpos + nblocks_per_window].ravel()
+
+            hog_features = np.hstack((hog_feat1, hog_feat2, hog_feat3))
+
+            xleft = xpos * pix_per_cell
+            ytop = ypos * pix_per_cell
+
+            # Extract the image patch
+            subimg = cv2.resize(ctrans_tosearch[ytop:ytop + window, xleft:xleft + window], (64, 64))
+
+            # Get color features
+            spatial_features = cv2.resize(subimg, size).ravel()
+            hist_features = color_hist(subimg, nbins=hist_bins, bins_range=hist_range)
+
+            # Scale features and make a prediction
+            test_features = scaler.transform(np.hstack((spatial_features, hist_features, hog_features)).reshape(1, -1))
+            test_prediction = clf.predict(test_features)
+
+            if test_prediction == 1:
+                xbox_left = np.int(xleft * scale)
+                ytop_draw = np.int(ytop * scale)
+                win_draw = np.int(window * scale)
+                car_windows.append(
+                    ((xbox_left+xstart, ytop_draw + ystart), (xbox_left + win_draw +xstart, ytop_draw + win_draw + ystart)))
+
+    return car_windows
         
