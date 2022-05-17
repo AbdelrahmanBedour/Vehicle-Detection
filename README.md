@@ -1,5 +1,5 @@
 # Vehicle-Detection
-## A Simple Vehicle detection basem on HOG features and SVM for the image processing Class 
+## A Simple Vehicle detection based on HOG features and SVM for the image processing Class 
 
 ### To execute the script 
 1- Go to project directory
